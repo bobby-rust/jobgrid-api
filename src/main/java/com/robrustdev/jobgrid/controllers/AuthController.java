@@ -1,17 +1,17 @@
 package com.robrustdev.jobgrid.controllers;
 
 import com.robrustdev.jobgrid.dtos.ApiResponse;
+import com.robrustdev.jobgrid.dtos.Tokens;
 import com.robrustdev.jobgrid.dtos.requests.LoginRequest;
 import com.robrustdev.jobgrid.dtos.requests.RegisterRequest;
-import com.robrustdev.jobgrid.models.RefreshToken;
 import com.robrustdev.jobgrid.models.User;
-import com.robrustdev.jobgrid.services.RefreshTokenService;
+import com.robrustdev.jobgrid.services.TokenService;
 import com.robrustdev.jobgrid.services.UserService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
-import org.springframework.boot.autoconfigure.graphql.GraphQlProperties;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,11 +22,16 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/auth")
 public class AuthController {
     private final UserService userService;
-    private final RefreshTokenService refreshTokenService;
+    private final TokenService tokenService;
 
-    public AuthController(UserService userService, RefreshTokenService refreshTokenService) {
+    @Value("${jwt.refresh.expiration-ms}")
+    private long refreshTokenExpirationMs;
+    @Value("${jwt.expiration-ms")
+    private long jwtExpirationMs;
+
+    public AuthController(UserService userService, TokenService tokenService) {
         this.userService = userService;
-        this.refreshTokenService = refreshTokenService;
+        this.tokenService = tokenService;
     }
 
     @PostMapping("/register")
@@ -39,23 +44,37 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Object>> login(@Valid @RequestBody LoginRequest request, HttpServletResponse response) {
         User user = userService.login(request.getEmail(), request.getPassword());
 
-        RefreshToken refreshToken = refreshTokenService.createRefreshToken(user);
-        String jwt = jwtUtils.
-
-        Cookie jwtCookie = new Cookie("jwt", jwt);
-        jwtCookie.setHttpOnly(true);
-        jwtCookie.setSecure(true);
-        jwtCookie.setPath("/");
-        jwtCookie.setMaxAge(24 * 60 * 60);
-
-        response.addCookie(jwtCookie);
+        Tokens tokens = tokenService.createTokens(user);
+        setTokens(response, tokens);
 
         return ResponseEntity.ok(new ApiResponse<>(true, "Login successful", null));
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<ApiResponse<Object>> refreshToken(HttpServletRequest request, HttpServletResponse response) {
-        refreshTokenService.refresh(request, response);
+    public ResponseEntity<ApiResponse<Object>> refreshTokens(HttpServletRequest request, HttpServletResponse response) {
+        Tokens newTokens = tokenService.refreshJwt(request, response);
+        setTokens(response, newTokens);
         return ResponseEntity.ok(new ApiResponse<>(true, "Token refreshed", null));
     }
+
+    private void setTokens(HttpServletResponse response, Tokens tokens) {
+        // Create and set JWT cookie
+        Cookie jwtCookie = new Cookie("jwt", tokens.getJwt());
+        jwtCookie.setHttpOnly(true);
+        jwtCookie.setSecure(true);
+        jwtCookie.setPath("/");
+        int maxAccessTokenAgeSeconds = (int) (jwtExpirationMs / 1000);
+        jwtCookie.setMaxAge(maxAccessTokenAgeSeconds);
+        response.addCookie(jwtCookie);
+
+        // Create and set refresh token cookie
+        Cookie refreshCookie = new Cookie("refreshToken", tokens.getRefreshToken());
+        refreshCookie.setHttpOnly(true);
+        refreshCookie.setSecure(true);
+        refreshCookie.setPath("/");
+        int maxRefreshTokenAgeSeconds = (int) (refreshTokenExpirationMs / 1000);
+        refreshCookie.setMaxAge(maxRefreshTokenAgeSeconds);
+        response.addCookie(refreshCookie);
+    }
+
 }
