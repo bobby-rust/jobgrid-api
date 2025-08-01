@@ -33,7 +33,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             @NonNull FilterChain filterChain
     ) throws ServletException, IOException {
         String token = getJwtFromCookies(request);
+        System.out.println("Request URI: " + request.getRequestURI());
         System.out.println("Got token: " + token);
+        System.out.println("Remote Addr: " + request.getRemoteAddr());
+        System.out.println("User-Agent: " + request.getHeader("User-Agent"));
         if (token != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             try {
                 Claims claims = jwtUtils.parseToken(token);
